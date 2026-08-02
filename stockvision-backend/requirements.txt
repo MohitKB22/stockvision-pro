@@ -1,0 +1,130 @@
+# ==============================================================================
+# StockVision Pro — Backend Dependencies
+# ==============================================================================
+# Grouped by concern so a reviewer can see *why* each package is here.
+
+# --- Web framework / API layer ------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20        # required by FastAPI's OAuth2PasswordRequestForm
+
+# --- Data validation / settings ----------------------------------------------
+pydantic==2.12.3   # bumped from 2.10.4: its pydantic-core==2.27.2 dependency
+                    # has no wheel for Python 3.14, and pip's from-source
+                    # fallback fails harder than scipy/scikit-learn/shap did
+                    # above -- it's not just a missing wheel, the specific
+                    # PyO3 (Rust/Python bridge) version pydantic-core 2.27.2
+                    # depends on doesn't support building against Python
+                    # 3.14's C API at all, regardless of what compilers are
+                    # installed. 2.12.3 is the latest patch of the first
+                    # pydantic 2.x minor version whose pydantic-core pin
+                    # (2.41.4) has a real 3.14 wheel -- chosen over jumping
+                    # straight to the newest release (2.13.x) to minimize
+                    # API drift from what this project was built against.
+                    # pydantic-settings==2.7.1 only requires pydantic>=2.7.0,
+                    # so it did not need a matching bump.
+pydantic-settings==2.7.1
+# email-validator removed with schemas/auth.py — nothing validates an email any more.
+
+# --- Database / ORM / migrations ----------------------------------------------
+sqlalchemy==2.0.51   # bumped from 2.0.36: that version predates several
+                      # SQLAlchemy fixes specifically for Python 3.14's PEP
+                      # 649 (deferred annotation evaluation, the default
+                      # behavior in 3.14 with no `from __future__ import
+                      # annotations` needed) -- confirmed via SQLAlchemy's own
+                      # changelog, which lists multiple "Fixed issue ... with
+                      # Python 3.14's PEP 649 feature" entries in 2.0.x
+                      # releases after 2.0.36. Symptom on 2.0.36 + Python
+                      # 3.14: declarative mapping crashes with
+                      # `TypeError: descriptor '__getitem__' requires a
+                      # 'typing.Union' object but received a 'tuple'` on ANY
+                      # model using `Mapped[X | None]` (PEP 604 union syntax)
+                      # -- i.e. most of this project's nullable columns.
+                      # Stayed on the 2.0.x line (not 2.1) to minimize API
+                      # drift; re-verified against the full test suite.
+alembic==1.14.0
+psycopg2-binary==2.9.10         # PostgreSQL driver (production target)
+
+# --- Auth / security -----------------------------------------------------------
+# REMOVED in v2.0: python-jose, passlib and bcrypt. The platform has no accounts,
+# no passwords and no tokens, so shipping a JWT library and a password hasher
+# would be dead weight AND a standing invitation to wire authentication back up
+# against code nobody is maintaining. Three fewer dependencies is also three
+# fewer CVE surfaces to track.
+# --- Caching / task queue (interfaces defined; broker optional in sandbox) ----
+redis==5.2.1
+celery==5.4.0
+
+# --- Monitoring ---------------------------------------------------------------
+# NOTE: OpenTelemetry pins bumped to the 1.43.x family (from an original 1.29.x
+# pin) specifically because chromadb (below) transitively requires it, and a
+# mixed 1.29/1.43 install produces a real ImportError at app startup
+# (opentelemetry.exporter.otlp.proto.http fails to import against a newer
+# opentelemetry-api) — caught by actually re-running the app after adding
+# chromadb, not assumed away.
+prometheus-fastapi-instrumentator==7.0.2
+opentelemetry-api==1.43.0
+opentelemetry-sdk==1.43.0
+opentelemetry-instrumentation-fastapi==0.64b0
+opentelemetry-exporter-otlp-proto-http==1.43.0
+
+# --- LLM / RAG (Phase 2: LLM Financial Copilot) --------------------------------
+pypdf==5.1.0                # PDF text extraction (see app/rag/pdf_extraction.py)
+reportlab==4.2.5            # PDF report rendering (app/services/report_service.py) + sample-document generation
+openpyxl==3.1.5             # XLSX report export (app/services/report_service.py)
+faiss-cpu==1.14.3      # primary vector store (app/rag/vector_store.py)
+                        # NOTE: was pinned to 1.9.0.post1 originally, which
+                        # has no published wheel for several common
+                        # platform/Python combinations (confirmed: it broke
+                        # `pip install` entirely on macOS + Python 3.14, since
+                        # pip aborts resolving the WHOLE requirements.txt if
+                        # any single pin can't be satisfied -- every other
+                        # package silently failed to install too, which is
+                        # why the resulting ModuleNotFoundError pointed at an
+                        # unrelated package (jose), not faiss-cpu itself).
+chromadb==0.6.3             # alternative vector store backend, same VectorStore interface
+
+# --- Data / numerics -----------------------------------------------------------
+pandas==2.2.3
+numpy==2.4.6    # bumped from 1.26.4 -- NOT a standalone choice: scipy 1.18.0
+                # /scikit-learn 1.7.2/shap 0.50.0 (bumped above, all for
+                # Python 3.14 wheel availability) require numpy 2.x, and pip
+                # silently force-upgrades it to satisfy them regardless of
+                # this pin's own value. Left at the old pin, this line would
+                # describe a version that isn't actually what gets installed.
+                # numpy 1.x -> 2.x is a real breaking-change-prone major
+                # version bump (changed C API, some type-promotion behavior)
+                # -- full test suite re-run and passing against this version,
+                # not assumed compatible because the pin exists.
+scipy==1.18.0   # bumped from 1.14.1: that version has no prebuilt wheel at
+                # all for several current platform/Python combos (confirmed:
+                # it forced a from-source build on macOS + Python 3.14, which
+                # then failed outright with no Fortran compiler available for
+                # scipy's LAPACK/BLAS bindings -- a hard requirement of
+                # building it from source, not something pip can work around)
+
+# --- Machine learning ------------------------------------------------------------
+scikit-learn==1.7.2   # bumped from 1.5.2: no wheel at all for several
+                       # current platform/Python combos (e.g. macOS +
+                       # Python 3.14) -- same class of issue as scipy above
+xgboost==2.1.3
+lightgbm==4.5.0
+shap==0.50.0   # bumped from 0.46.0, same reason as scipy/scikit-learn above.
+               # NOTE: shap has changed its TreeExplainer output shape across
+               # versions before (see app/ml/explain.py's
+               # _as_positive_class_array, written specifically to normalize
+               # this) -- re-verified against the full test suite after this
+               # bump, not just assumed compatible.
+optuna==4.1.0
+joblib==1.4.2
+
+# --- Testing ---------------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.25.1
+httpx==0.28.1                    # used by FastAPI's TestClient under the hood
+
+# --- Utilities ---------------------------------------------------------------------
+python-dotenv==1.0.1
+
+# --- Linting (dev) --------------------------------------------------------------
+ruff==0.8.4

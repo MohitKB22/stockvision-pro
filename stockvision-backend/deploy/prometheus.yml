@@ -1,0 +1,22 @@
+# Prometheus scrape configuration for StockVision Pro.
+#
+# Scrapes the FastAPI backend's /metrics endpoint (exposed by
+# prometheus-fastapi-instrumentator — see app/core/monitoring.py), which
+# reports per-route request counts, latency histograms, and in-flight
+# request gauges out of the box.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "stockvision-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: "stockvision-pro"
+          environment: "production"
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

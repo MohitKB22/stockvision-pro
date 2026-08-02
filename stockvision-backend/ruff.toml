@@ -1,0 +1,43 @@
+# Lint configuration. Deliberately narrow: rules that catch real defects
+# (undefined names, unused imports, mutable default arguments, bare excepts)
+# rather than stylistic preferences a formatter should own.
+line-length = 120
+# py310, not py311: the source deliberately avoids 3.11-only conveniences
+# (`datetime.UTC`, `StrEnum`, `Self`) so it runs unchanged on 3.10 through 3.13.
+# The Docker image is 3.12; the floor is what matters for portability.
+target-version = "py310"
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes — undefined names, unused imports
+    "I",    # import sorting
+    "B",    # bugbear — mutable defaults, loop-variable binding
+    "UP",   # pyupgrade — modern syntax
+    "C4",   # comprehension simplification
+    "SIM",  # simplification
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",    # line length is the formatter's concern, not the linter's
+    "B008",    # FastAPI's Depends()/Query() in defaults is the framework's idiom
+    "SIM108",  # a ternary is not always more readable than an if/else
+    "RUF012",  # ClassVar annotations on mutable class attrs — noisy for SQLAlchemy
+    "UP042",   # `class X(str, Enum)` over `StrEnum`: DELIBERATE. StrEnum changes
+               # `str(member)` from "Market.INDIA" to "IN", which silently alters
+               # every f-string and log line that interpolates an enum, and
+               # Pydantic v2 + SQLAlchemy both round-trip `str, Enum` members
+               # exactly as this codebase's schemas and columns expect. Migrating
+               # is a behavioural change, not a modernization.
+    "B905",    # `zip(..., strict=)`: the zips here pair a list with weights
+               # derived from that same list, so a length mismatch is impossible
+               # by construction and the flag adds noise without adding safety.
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S101", "PLR2004"]      # tests assert on magic numbers by design
+"migrations/*" = ["E402", "F401"]    # alembic's generated import layout
+"scripts/*" = ["T201"]               # scripts print rather than log
+
+[lint.isort]
+known-first-party = ["app", "scripts"]

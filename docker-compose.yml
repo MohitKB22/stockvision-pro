@@ -1,0 +1,178 @@
+# =============================================================================
+# StockVision Pro — full stack
+#
+#   docker compose up --build           # postgres + redis + api + web + nginx
+#   docker compose --profile worker up  # + Celery worker and beat
+#   docker compose --profile obs up     # + Prometheus and Grafana
+#
+# CHANGE LOG (v2.0): this file is new at the repository root. v1 had a compose
+# file inside the backend directory only, so `docker compose up` from the repo
+# root started the API with no frontend and no reverse proxy — the stack could
+# not actually be run as a product.
+# =============================================================================
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 20s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stockvision-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stockvision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockvision}
+      POSTGRES_DB: ${POSTGRES_DB:-stockvision}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      # `depends_on: condition: service_healthy` is what stops the API racing the
+      # database on a cold start — without it the first boot reliably fails with
+      # "connection refused" and then succeeds on restart, which is a confusing
+      # first impression of an otherwise working stack.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stockvision} -d ${POSTGRES_DB:-stockvision}"]
+      <<: *healthcheck-defaults
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: stockvision-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      <<: *healthcheck-defaults
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./stockvision-backend
+      dockerfile: Dockerfile
+    container_name: stockvision-api
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stockvision}:${POSTGRES_PASSWORD:-stockvision}@postgres:5432/${POSTGRES_DB:-stockvision}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
+    volumes:
+      # Persisted so uploaded documents, trained models and generated reports
+      # survive a container rebuild. Losing a trained model on redeploy would
+      # silently degrade every prediction back to indicators-only.
+      - document-storage:/app/document_storage
+      - model-artifacts:/app/ml_artifacts
+      - report-storage:/app/report_storage
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/ready').status==200 else 1)"]
+      <<: *healthcheck-defaults
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./stockvision-frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked at BUILD time: NEXT_PUBLIC_* variables are inlined into the client
+        # bundle by the compiler, so setting them only at runtime has no effect on
+        # already-built JavaScript.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    container_name: stockvision-web
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: stockvision-nginx
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on: [api, web]
+    restart: unless-stopped
+
+  # --- Optional: background jobs -------------------------------------------
+  worker:
+    profiles: ["worker"]
+    build: { context: ./stockvision-backend, dockerfile: Dockerfile }
+    container_name: stockvision-worker
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stockvision}:${POSTGRES_PASSWORD:-stockvision}@postgres:5432/${POSTGRES_DB:-stockvision}
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+    volumes: [model-artifacts:/app/ml_artifacts]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  beat:
+    profiles: ["worker"]
+    build: { context: ./stockvision-backend, dockerfile: Dockerfile }
+    container_name: stockvision-beat
+    command: celery -A app.worker.celery_app beat --loglevel=info
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stockvision}:${POSTGRES_PASSWORD:-stockvision}@postgres:5432/${POSTGRES_DB:-stockvision}
+      CELERY_BROKER_URL: redis://redis:6379/1
+    depends_on:
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  # --- Optional: observability ------------------------------------------------
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:latest
+    container_name: stockvision-prometheus
+    volumes:
+      - ./stockvision-backend/deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports: ["9090:9090"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  grafana:
+    profiles: ["obs"]
+    image: grafana/grafana:latest
+    container_name: stockvision-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes: [grafana-data:/var/lib/grafana]
+    ports: ["3001:3000"]
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  document-storage:
+  model-artifacts:
+  report-storage:
+  prometheus-data:
+  grafana-data:

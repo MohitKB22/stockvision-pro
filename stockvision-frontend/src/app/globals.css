@@ -1,0 +1,174 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+
+    --font-sans: "Inter Variable", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+    /* Surfaces — a near-black slate, deliberately blue-shifted rather than
+       neutral grey. Pure #000 makes elevation impossible to read and causes
+       visible smearing on OLED panels during scroll. */
+    --canvas: 222 47% 4%;
+    --surface: 222 40% 7%;
+    --elevated: 221 36% 10%;
+    --overlay: 221 34% 13%;
+    --line: 220 26% 18%;
+    --line-strong: 220 24% 26%;
+
+    /* Text — four steps, because three is not enough to separate a value, its
+       label and its secondary annotation inside a dense metric card. */
+    --ink: 210 40% 96%;
+    --ink-muted: 215 20% 70%;
+    --ink-subtle: 217 15% 52%;
+    --ink-faint: 217 14% 38%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 6%;
+    --accent: 262 83% 66%;
+
+    /* Semantic P&L colours. Chosen to stay distinguishable under the most common
+       form of colour-vision deficiency (deuteranopia) by differing in lightness
+       as well as hue — which is also why every gain/loss element in the UI pairs
+       its colour with a directional arrow or an explicit sign. */
+    --gain: 158 74% 45%;
+    --loss: 0 84% 63%;
+    --warn: 38 92% 55%;
+    --info: 199 89% 55%;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals wherever financial data is displayed. Proportional digits
+     make columns of numbers misalign and are genuinely slower to scan, which
+     matters in a tool someone reads all day. */
+  .tabular,
+  .font-mono,
+  table {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings:
+      "tnum" 1,
+      "lnum" 1;
+  }
+
+  /* Never suppressed — this is the accessibility floor, not a style choice. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-canvas;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.28);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--line-strong));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--ink-faint));
+    background-clip: content-box;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* The signature panel treatment: a translucent elevated surface over the
+     canvas, with a hairline border and a soft inner highlight along the top edge
+     that reads as light catching a raised surface. */
+  .glass {
+    @apply border border-line/80 bg-surface/70 backdrop-blur-xl;
+    box-shadow:
+      inset 0 1px 0 0 hsl(var(--ink) / 0.045),
+      0 1px 2px 0 rgb(0 0 0 / 0.35),
+      0 8px 24px -12px rgb(0 0 0 / 0.55);
+  }
+
+  .glass-strong {
+    @apply border border-line-strong/70 bg-elevated/85 backdrop-blur-2xl;
+    box-shadow:
+      inset 0 1px 0 0 hsl(var(--ink) / 0.06),
+      0 2px 4px 0 rgb(0 0 0 / 0.4),
+      0 16px 40px -16px rgb(0 0 0 / 0.65);
+  }
+
+  /* Loading skeleton with a travelling highlight. Uses a pseudo-element rather
+     than animating background-position, so it composites on the GPU and does not
+     repaint the element on every frame. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-elevated/70;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(90deg, transparent, hsl(var(--ink) / 0.07), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+
+  .stat-value {
+    @apply tabular text-2xl font-semibold tracking-tight text-ink;
+  }
+  .stat-label {
+    @apply text-2xs font-medium uppercase tracking-wider text-ink-subtle;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-primary bg-clip-text text-transparent;
+  }
+
+  /* Fades the trailing edge of a horizontally scrollable strip so it reads as
+     "there is more" rather than as a hard clip. */
+  .mask-fade-r {
+    mask-image: linear-gradient(to right, black 88%, transparent 100%);
+  }
+}

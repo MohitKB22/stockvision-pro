@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Databases & generated artifacts
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+ml_artifacts/
+document_storage/
+report_storage/
+
+# Node / Next
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editors & OS
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,15 @@
+# =============================================================================
+# SUPERSEDED — use the compose file at the repository root.
+#
+# This file started the API, Postgres and Redis but no frontend and no reverse
+# proxy, which in v2.0 is a partial stack rather than a runnable product. The
+# root ../docker-compose.yml brings up everything and is the supported path:
+#
+#     cd ..
+#     cp .env.example .env
+#     docker compose up --build
+#
+# Kept as a pointer rather than deleted, because `docker compose up` run from
+# this directory would otherwise fail with a confusing "no configuration file"
+# rather than telling you where to go.
+# =============================================================================
