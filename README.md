@@ -8,22 +8,20 @@ The application opens directly on the dashboard.
 
 ---
 
-## Deploying the frontend
+## Hosting (free)
 
-The Next.js app deploys to Vercel; the FastAPI backend does not (it needs a
-writable filesystem, a database, FAISS and Celery). Two files cover this:
+The whole stack runs on free tiers, ₹0:
 
-- **[DEPLOY_VERCEL.md](DEPLOY_VERCEL.md)** — the one project setting a fresh
-  import needs. Vercel's default Root Directory is the repository root, which
-  holds no `package.json`, so the build deploys nothing and every path returns
-  `404: NOT_FOUND`. Set **Root Directory** to `stockvision-frontend` and redeploy.
-- **[DEMO_MODE.md](DEMO_MODE.md)** — production builds run with
-  `NEXT_PUBLIC_DEMO_MODE=true`, so the deployed site is fully usable without a
-  backend. The frontend answers its own API calls from a generated dataset and
-  labels itself with a "Demo data" badge while it does. The price history is
-  synthetic; the risk, indicator and Monte Carlo maths computed on it is real.
+| Part | Host | Plan |
+| --- | --- | --- |
+| Frontend (Next.js) | Vercel — project `stockvision-pro`, Root Directory `stockvision-frontend` | Hobby (free) |
+| API (FastAPI + ML) | Vercel — project `stockvision-pro-api`, Root Directory `stockvision-backend` | Hobby (free) |
+| Database | Neon serverless PostgreSQL | Free |
 
-Local development is unaffected — `npm run dev` still talks to `localhost:8000`.
+Pushes to `main` deploy automatically once CI passes
+(`.github/workflows/deploy.yml`), after which the live site is smoke-tested.
+Setup, limits and what changes on serverless:
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#free-hosting-vercel--neon).
 
 ---
 
@@ -60,9 +58,6 @@ requirements, seeds the database on first run, **frees port 8000 if a crashed
 actually bound, and starts uvicorn. Pass a port to use a different one:
 `./start-backend.sh 8001`.
 
-No backend at all? `./start-frontend.sh --demo` runs the UI against generated
-data — see [DEMO_MODE.md](DEMO_MODE.md).
-
 If something is still wrong:
 
 ```bash
@@ -77,8 +72,6 @@ standard library, so it runs even when the environment is broken.
 ---
 
 ## Quick start — local
-./start-backend.sh
-./start-frontend.sh
 
 **Terminal 1 — backend**
 
@@ -86,7 +79,7 @@ standard library, so it runs even when the environment is broken.
 cd stockvision-pro/stockvision-backend     # note: ONE stockvision-pro, not two
 python3 -m venv .venv
 source .venv/bin/activate                  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt        # runtime + test tools
 
 python scripts/seed_data.py                # both markets, ~3 years of history
 python -m uvicorn app.main:app --reload    # use `python -m`, not bare `uvicorn`
@@ -275,8 +268,10 @@ python scripts/seed_data.py --reset
 3. **Risk** → Monte Carlo fan chart, correlation matrix, stress scenarios
 4. **Market** → *Heatmap* tab — tile area is market cap, colour is session return
 5. **Reports** → generate a Portfolio PDF; it downloads immediately
-6. **Copilot** → upload any PDF, then ask about it (works without an API key —
-   falls back to a clearly-labelled extractive mode)
+6. **Copilot (API)** → the RAG endpoints are in `/docs` under *Copilot*: upload
+   a PDF to `POST /api/v1/documents/upload`, then ask `POST /api/v1/copilot/query`
+   (works without an LLM key — falls back to a clearly-labelled extractive mode).
+   The UI page for it was removed in v2.0; the API is unchanged.
 7. Switch the market **IN ⇄ US** in the top bar; currency and digit grouping
    follow (₹12,45,000 vs $1,245,000)
 
@@ -289,7 +284,8 @@ in the UI as well as here.
 
 - **Price history is synthetic.** No market-data provider is reachable from the
   build environment, so `scripts/seed_data.py` generates geometric-Brownian-motion
-  OHLCV with regime-switching volatility. The real provider clients exist
+  OHLCV with regime-switching volatility, ending on the day the database was
+  seeded (it is not refreshed afterwards without a provider key). The real provider clients exist
   (`app/services/market_data_providers.py`) and are wired to the Celery refresh
   task; supply an API key and the same tables fill with real bars.
 - **News sentiment is a lexicon model, not a transformer.** Deterministic, fast
@@ -324,8 +320,8 @@ stockvision-pro/
 │   │   ├── ml/                indicators, training, SHAP, registry
 │   │   └── rag/               PDF, chunking, embeddings, vector stores
 │   ├── migrations/            Alembic
-│   ├── scripts/               seed, train, e2e, CI guards
-│   └── tests/                 203 tests
+│   ├── scripts/               seed, train, e2e, smoke test, Vercel build, CI guards
+│   └── tests/                 248 tests (run on SQLite and PostgreSQL)
 ├── stockvision-frontend/      Next.js 16 App Router · React 19 · TypeScript
 │   └── src/
 │       ├── app/(app)/         11 pages behind a shared shell
@@ -348,9 +344,10 @@ Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Verification
 
 ```bash
-# Backend — 203 tests, ruff clean
+# Backend — 248 tests, ruff clean
 cd stockvision-backend
 pytest -q
+TEST_DATABASE_URL=postgresql://…/disposable_db pytest -q   # same suite on PostgreSQL
 ruff check app scripts tests migrations
 python scripts/check_no_auth.py
 
@@ -358,12 +355,17 @@ python scripts/check_no_auth.py
 python scripts/seed_data.py --market IN
 python scripts/e2e_api_test.py
 
+# Live HTTP smoke test — any running API (local or hosted)
+python scripts/smoke_test.py http://localhost:8000
+
 # Frontend — zero TS errors, zero lint issues, clean build
 cd ../stockvision-frontend
 npm run verify        # typecheck + lint + no-auth guard + build
 ```
 
-CI runs all of the above plus both Docker image builds on every push.
+CI runs all of the above (the suite twice: SQLite and PostgreSQL), rehearses the
+serverless deployment against PostgreSQL, and builds both Docker images on every
+push. The deploy workflow re-runs the smoke test against the live site.
 
 ---
 
@@ -381,9 +383,12 @@ CI runs all of the above plus both Docker image builds on every push.
 
 ## Security posture
 
-**This API is unauthenticated by design.** Run it behind a private network
-boundary or a reverse proxy that terminates access control. Do not expose it
-directly to the public internet.
+**This API is unauthenticated by design.** For anything beyond a public demo,
+run it behind a private network boundary or a reverse proxy that terminates
+access control. The hosted demo is public, so it adds guards that bound what an
+anonymous visitor can cost: per-request training limits, a 4 MB upload ceiling,
+a storage quota and report retention, and client IPs truncated before they are
+stored (the admin page would otherwise publish them).
 
 What is in place: security response headers, a per-IP rate limiter (edge + app),
 strict upload size limits, hard pagination caps, no stack traces in error

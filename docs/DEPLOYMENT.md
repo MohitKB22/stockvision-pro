@@ -1,6 +1,65 @@
 # Deployment
 
-## Docker Compose (recommended)
+Two supported targets: **free hosting on Vercel + Neon** (the public demo) and
+**Docker Compose** (a self-hosted stack with Redis, Celery and NGINX).
+
+## Free hosting (Vercel + Neon)
+
+Everything stays on free tiers: Vercel **Hobby** for the frontend and the API,
+Neon's **Free** plan for PostgreSQL. Neither needs a payment method. When a free
+limit is reached they stop serving rather than bill: Neon suspends the database
+compute until its next monthly period, and on Vercel Hobby (which has no billing
+cycle at all) the over-limit feature is unavailable until 30 days have passed.
+Hobby is for **non-commercial** use only. Free-tier terms can change, so re-check
+[vercel.com/pricing](https://vercel.com/pricing) and
+[neon.com/pricing](https://neon.com/pricing) occasionally.
+
+| Part | Where | Notes |
+| --- | --- | --- |
+| Frontend | Vercel project `stockvision-pro`, Root Directory `stockvision-frontend` | `NEXT_PUBLIC_API_URL` = API URL + `/api/v1` (set at build) |
+| API | Vercel project `stockvision-pro-api`, Root Directory `stockvision-backend` | One Python function (`app/main.py`), 300 s max, 2 GB |
+| Database | Neon project, region AWS us-east-1 (next to Vercel's default `iad1`) | Use the **pooled** connection string |
+
+### One-time setup
+
+1. Neon: create a free project and copy its connection string.
+2. Vercel: create an access token (Account Settings → Tokens).
+3. GitHub: add both as repository secrets — `DATABASE_URL` and `VERCEL_TOKEN`.
+
+That is all. `.github/workflows/deploy.yml` runs after CI passes on `main` (or
+manually from the Actions tab). It creates both Vercel projects if they do not
+exist, sets their environment variables, deploys the API and then the frontend
+built against it, and smoke-tests the live site with `scripts/smoke_test.py`.
+The URLs and the test result appear as annotations on the workflow run.
+
+### What changes on serverless
+
+Detected automatically from the `VERCEL` environment variable:
+
+| Concern | Docker / local | Vercel |
+| --- | --- | --- |
+| Model artifacts, reports, uploaded PDFs | files under `*_STORAGE_DIR` | `stored_files` table (`STORAGE_BACKEND=database`) — the function's disk is read-only and per-instance |
+| Schema + seed data | `alembic upgrade head` + `seed_data.py` by hand | the build step (`scripts/vercel_build.py`) — idempotent, preview builds skip it |
+| Upload limit | 25 MB | 4 MB (Vercel rejects request bodies over 4.5 MB) |
+| Training per request | ≤ 200 Optuna trials, ≤ 20 splits | ≤ 40 trials, ≤ 8 splits (300 s function limit) |
+| DB pool per process | 10 + 20 | 5 + 15, 240 s recycle (Neon suspends idle compute) |
+| `/metrics` | on | off (per-instance counters nobody scrapes) |
+| Celery price refresh | `--profile worker` | not run (no provider key is configured on the demo) |
+
+The API's dependencies are split so the function fits Vercel's 500 MB Python
+limit: `requirements.txt` is runtime-only (433 MB installed), with test tools in
+`requirements-dev.txt` and `chromadb` in `requirements-optional.txt`. SHAP values
+come from XGBoost/LightGBM's built-in TreeSHAP (forests are translated into an
+equivalent XGBoost ensemble) instead of the `shap` package, whose numba/LLVM
+dependency alone is ~190 MB; `tests/test_explain.py` checks they match `shap`.
+
+Public-demo guards (set by the deploy workflow): `STORAGE_QUOTA_BYTES=300 MB`,
+`REPORT_RETENTION_COUNT=50`, `RATE_LIMIT_PER_MINUTE=300`, and client IPs are
+truncated before the audit log stores them (`AUDIT_ANONYMIZE_IP`, on by default).
+
+---
+
+## Docker Compose (recommended for self-hosting)
 
 ```bash
 cp .env.example .env
@@ -26,8 +85,13 @@ requires rebuilding the `web` image, not just restarting it.
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `ENVIRONMENT` | `development` | `development` / `staging` / `production` / `test` |
-| `DATABASE_URL` | `sqlite:///./stockvision.db` | Use `postgresql://…` in production |
-| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | `10` / `20` | PostgreSQL only |
+| `DATABASE_URL` | `sqlite:///./stockvision.db` | Use `postgresql://…` in production; `postgres://` is accepted. Falls back to `POSTGRES_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_URL_NON_POOLING` |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | `10` / `20` (`5` / `15` on serverless) | PostgreSQL only |
+| `STORAGE_BACKEND` | `filesystem` (`database` on serverless) | Where artifacts, reports and PDFs are kept |
+| `STORAGE_QUOTA_BYTES` / `REPORT_RETENTION_COUNT` | `0` / `0` | Caps for public deployments (0 = unlimited) |
+| `CORS_ORIGIN_REGEX` | unset | Extra origins by pattern, e.g. preview deployments |
+| `ML_MAX_OPTUNA_TRIALS` / `ML_MAX_WALK_FORWARD_SPLITS` | `200` / `20` (`40` / `8` on serverless) | Per-request training budget |
+| `AUDIT_ANONYMIZE_IP` | `true` | Truncate client IPs before storing them |
 | `REDIS_URL` | `redis://localhost:6379/0` | |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/1` | |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated **or** JSON |
@@ -41,9 +105,12 @@ requires rebuilding the `web` image, not just restarting it.
 | `OPENAI_API_KEY` / `GEMINI_API_KEY` | unset | Without either, the copilot uses the extractive fallback |
 | `ALPHA_VANTAGE_API_KEY` / `POLYGON_API_KEY` | unset | Enables the live price refresh task |
 
-`CORS_ORIGINS` accepts a plain comma-separated string. pydantic-settings parses
-complex types as JSON first, so the natural `a.com,b.com` form used to crash the
-process at boot — that is fixed, but the JSON form still works too.
+`CORS_ORIGINS` accepts a plain comma-separated string or a JSON array.
+pydantic-settings JSON-decodes list fields read from the environment before any
+validator runs, so the comma-separated form used to crash the process at boot
+when it came from a real environment variable; the field is now marked
+`NoDecode` and parsed by the validator (regression-tested in
+`tests/test_deployment.py`).
 
 ## Migrations
 

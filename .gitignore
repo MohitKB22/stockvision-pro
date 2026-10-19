@@ -27,6 +27,9 @@ out/
 .env.local
 .env.*.local
 
+# Vercel CLI project link / pulled environment (may contain secrets)
+.vercel/
+
 # Editors & OS
 .vscode/
 .idea/

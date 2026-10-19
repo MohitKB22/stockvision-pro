@@ -1,0 +1,19 @@
+# Files never uploaded by `vercel deploy` (run from the repository root; each
+# Vercel project builds only its own Root Directory).
+**/node_modules/
+**/.next/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/ml_artifacts/
+**/document_storage/
+**/report_storage/
+**/.env
+**/.env.local
+**/.env.*.local
+.git/
