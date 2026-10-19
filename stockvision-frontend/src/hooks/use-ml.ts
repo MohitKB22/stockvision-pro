@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { ApiError, get, post } from "@/lib/api";
+import { ApiError, get, LONG_REQUEST_TIMEOUT_MS, post } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   ForecastResponse,
@@ -105,7 +105,10 @@ export function useTrainModel() {
       algorithm: ModelAlgorithm;
       n_optuna_trials: number;
       n_walk_forward_splits: number;
-    }) => post<TrainModelResponse>("/models/train", payload),
+    }) =>
+      post<TrainModelResponse>("/models/train", payload, undefined, {
+        timeout: LONG_REQUEST_TIMEOUT_MS,
+      }),
     onSuccess: (result) => {
       toast.success(`Trained ${result.name} v${result.version}`, {
         description: `Accuracy ${((result.metrics.accuracy ?? 0) * 100).toFixed(1)}% · F1 ${(result.metrics.f1 ?? 0).toFixed(3)}`,

@@ -4,8 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useMarket } from "@/context/market-context";
-import { API_URL, ApiError, del, get, patch, post } from "@/lib/api";
-import { downloadDemoReport, IS_DEMO } from "@/lib/demo";
+import { API_URL, ApiError, del, get, LONG_REQUEST_TIMEOUT_MS, patch, post } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   AdminOverview,
@@ -97,12 +96,6 @@ export function useReports(reportType?: ReportType) {
  * development setup — a relative link would resolve against :3000 and 404.
  */
 export function downloadReport(report: GeneratedReport) {
-  // In demo mode there is no server to stream the artifact from, so the file is
-  // assembled in the browser instead. Same click, same filename, real file.
-  if (IS_DEMO) {
-    downloadDemoReport(report);
-    return;
-  }
   const base = API_URL.replace(/\/api\/v1\/?$/, "");
   const anchor = document.createElement("a");
   anchor.href = `${base}${report.download_url}`;
@@ -121,7 +114,10 @@ export function useGenerateReport() {
       report_format: ReportFormat;
       portfolio_id?: string;
       lookback_days?: number;
-    }) => post<GeneratedReport>("/reports/generate", payload),
+    }) =>
+      post<GeneratedReport>("/reports/generate", payload, undefined, {
+        timeout: LONG_REQUEST_TIMEOUT_MS,
+      }),
     onSuccess: (report) => {
       toast.success("Report generated", { description: report.filename });
       queryClient.invalidateQueries({ queryKey: ["reports"] });

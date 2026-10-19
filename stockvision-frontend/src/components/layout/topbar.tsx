@@ -15,7 +15,6 @@ import type { SessionStatus } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import { DemoBadge } from "./demo-badge";
 import { MarketSwitcher } from "./market-switcher";
 import { SearchCommand } from "./search-command";
 
@@ -73,7 +72,6 @@ export function Topbar() {
           </p>
         </div>
 
-        <DemoBadge />
         <SessionBadge />
         <SearchCommand />
         <MarketSwitcher compact />

@@ -1,9 +1,16 @@
-import axios, { AxiosError, type AxiosInstance } from "axios";
+import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from "axios";
 
-import { installDemoAdapter, IS_DEMO } from "@/lib/demo";
 import type { ApiErrorBody, ApiErrorEnvelope } from "@/types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+
+/**
+ * Upper bound for operations the server does synchronously and that genuinely
+ * take a while: model training (Optuna search over walk-forward folds), report
+ * rendering. The default 30 s timeout made the UI report "timed out" while the
+ * server was still finishing a perfectly healthy training run.
+ */
+export const LONG_REQUEST_TIMEOUT_MS = 290_000;
 
 /**
  * The single HTTP client.
@@ -98,19 +105,6 @@ api.interceptors.response.use(
   (error: AxiosError) => Promise.reject(toApiError(error)),
 );
 
-/**
- * Demo mode swaps the transport, not the data layer.
- *
- * Replacing the ADAPTER (rather than mocking hooks) means every interceptor
- * above still runs: the demo's error envelopes become the same typed `ApiError`
- * a real 404 would, so empty states and error states are exercised for real.
- * With NEXT_PUBLIC_DEMO_MODE unset this branch is dead code and the module is
- * tree-shaken out of the bundle.
- */
-if (IS_DEMO) {
-  installDemoAdapter(api);
-}
-
 export function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
@@ -128,8 +122,9 @@ export async function post<T>(
   url: string,
   body?: unknown,
   params?: Record<string, unknown>,
+  config?: Pick<AxiosRequestConfig, "timeout">,
 ): Promise<T> {
-  const { data } = await api.post<T>(url, body, { params });
+  const { data } = await api.post<T>(url, body, { params, ...config });
   return data;
 }
 

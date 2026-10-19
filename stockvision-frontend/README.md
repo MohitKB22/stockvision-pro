@@ -20,17 +20,11 @@ bundled NGINX use `/api/v1` so the browser makes no cross-origin request at all.
 > `NEXT_PUBLIC_*` is compiled into the client bundle at **build** time. Changing
 > it requires restarting the dev server, not just a page refresh.
 
-### ...or run it without a backend
+### Hosted
 
-```bash
-NEXT_PUBLIC_DEMO_MODE=true npm run dev
-```
-
-Demo mode hands axios an in-browser adapter, so the whole API surface is answered
-from a generated dataset and no request leaves the page. It is on by default for
-production builds (`.env.production`), which is what makes the Vercel deployment
-usable on its own. Full explanation, including what is generated and what is
-computed for real: [../DEMO_MODE.md](../DEMO_MODE.md).
+Deployed to Vercel (free Hobby plan) as its own project with Root Directory
+`stockvision-frontend`, built with `NEXT_PUBLIC_API_URL` set to the hosted API.
+See [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md#free-hosting-vercel--neon).
 
 ## Layout
 
@@ -51,7 +45,6 @@ src/
 ├── context/            market provider (IN/US)
 ├── hooks/              React Query data layer, one file per domain
 ├── lib/                api client, formatting, query keys, navigation
-│   └── demo/           in-browser API stand-in (see ../DEMO_MODE.md)
 └── types/              the API contract, mirrored from the Pydantic schemas
 ```
 

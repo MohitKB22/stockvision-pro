@@ -137,21 +137,46 @@ const DATE_FORMATS = {
   datetime: { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" },
 } satisfies Record<string, Intl.DateTimeFormatOptions>;
 
+// An ISO date-time with no "Z" and no "+hh:mm" offset.
+const NAIVE_ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/**
+ * Parses a timestamp from the API.
+ *
+ * The backend stores and returns UTC, but serializes it without an offset
+ * (`2026-10-16T09:15:00`). `new Date()` reads such a string as LOCAL time, so in
+ * India every timestamp was 5.5 hours off: a model trained a second ago showed as
+ * trained in the future, and daily bars were plotted on the previous day. Strings
+ * without an offset are therefore read as UTC; strings with one are left alone.
+ */
+export function parseApiDate(value: string | Date): Date {
+  if (value instanceof Date) return value;
+  return new Date(NAIVE_ISO_DATETIME.test(value) ? `${value}Z` : value);
+}
+
+// Date-only formats name a calendar day (a daily bar, a trade date). Rendering
+// them in UTC keeps that day the same for every viewer, instead of shifting it
+// back a day for anyone west of Greenwich.
+const DATE_ONLY_VARIANTS = new Set<keyof typeof DATE_FORMATS>(["short", "medium"]);
+
 export function formatDate(
   value: string | Date | null | undefined,
   variant: keyof typeof DATE_FORMATS = "medium",
 ): string {
   if (!value) return "—";
-  const date = typeof value === "string" ? new Date(value) : value;
+  const date = parseApiDate(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-GB", DATE_FORMATS[variant]).format(date);
+  return new Intl.DateTimeFormat("en-GB", {
+    ...DATE_FORMATS[variant],
+    ...(DATE_ONLY_VARIANTS.has(variant) ? { timeZone: "UTC" } : {}),
+  }).format(date);
 }
 
 /** "4 hours ago". Falls back to an absolute date past a week, where relative
  *  phrasing stops being useful. */
 export function formatRelativeTime(value: string | Date | null | undefined): string {
   if (!value) return "—";
-  const date = typeof value === "string" ? new Date(value) : value;
+  const date = parseApiDate(value);
   if (Number.isNaN(date.getTime())) return "—";
 
   const seconds = Math.round((Date.now() - date.getTime()) / 1000);

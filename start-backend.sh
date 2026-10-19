@@ -28,7 +28,7 @@ if [ ! -d .venv ]; then
   # shellcheck disable=SC1091
   source .venv/bin/activate
   python -m pip install --upgrade pip
-  pip install -r requirements.txt
+  pip install -r requirements-dev.txt
 else
   # shellcheck disable=SC1091
   source .venv/bin/activate
@@ -53,8 +53,7 @@ fi
 # --- point the frontend at this port ---------------------------------------
 ENV_LOCAL="$ROOT/stockvision-frontend/.env.local"
 {
-  echo "# Written by start-backend.sh. Delete this file to fall back to demo mode."
-  echo "NEXT_PUBLIC_DEMO_MODE=false"
+  echo "# Written by start-backend.sh — points the UI at the port the API bound."
   echo "NEXT_PUBLIC_API_URL=http://127.0.0.1:$PORT/api/v1"
 } > "$ENV_LOCAL"
 echo "Wrote $ENV_LOCAL"

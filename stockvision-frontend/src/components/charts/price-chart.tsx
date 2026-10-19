@@ -10,6 +10,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 
+import { parseApiDate } from "@/lib/format";
 import type { PriceBar } from "@/types";
 
 /**
@@ -150,13 +151,15 @@ export function PriceChart({
     // throws on violation. The API returns ascending bars, but a defensive sort +
     // dedupe here means a future data source cannot crash the chart.
     const sorted = [...bars].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      (a, b) => parseApiDate(a.timestamp).getTime() - parseApiDate(b.timestamp).getTime(),
     );
 
     const seen = new Set<number>();
     const unique: { time: UTCTimestamp; bar: PriceBar }[] = [];
     for (const bar of sorted) {
-      const time = Math.floor(new Date(bar.timestamp).getTime() / 1000) as UTCTimestamp;
+      // UTC on both sides: the API's naive timestamps are UTC, and Lightweight
+      // Charts plots UTCTimestamp values as UTC calendar days.
+      const time = Math.floor(parseApiDate(bar.timestamp).getTime() / 1000) as UTCTimestamp;
       if (seen.has(time)) continue;
       seen.add(time);
       unique.push({ time, bar });
