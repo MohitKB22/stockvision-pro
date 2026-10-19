@@ -32,6 +32,29 @@ exist, sets their environment variables, deploys the API and then the frontend
 built against it, and smoke-tests the live site with `scripts/smoke_test.py`.
 The URLs and the test result appear as annotations on the workflow run.
 
+### Or: set it up in the Vercel dashboard (no secrets in GitHub)
+
+1. **Add New → Project**, import this repository. Name `stockvision-pro-api`,
+   Framework Preset **FastAPI**, Root Directory `stockvision-backend` (the build
+   command comes from its `vercel.json`). Add the environment variables
+   `ENVIRONMENT=production`, `LOG_FORMAT=json`,
+   `CORS_ORIGIN_REGEX=^https://stockvision-pro(-[a-z0-9]+)*\.vercel\.app$`,
+   `STORAGE_QUOTA_BYTES=314572800`, `REPORT_RETENTION_COUNT=50`,
+   `RATE_LIMIT_PER_MINUTE=300`, then Deploy. The first build stops with
+   "no PostgreSQL database is configured" — expected.
+2. In that project: **Storage → Create Database → Neon**, plan **Free**, region
+   Washington D.C. (`iad1`), connect it to Production and Preview with **no**
+   variable prefix (it injects `DATABASE_URL` / `DATABASE_URL_UNPOOLED`).
+   Then **Deployments → ⋯ → Redeploy**. The build migrates and seeds the database.
+3. **Add New → Project** again with the same repository: name `stockvision-pro`,
+   preset **Next.js**, Root Directory `stockvision-frontend`, environment variable
+   `NEXT_PUBLIC_API_URL=https://<API production domain>/api/v1`, Deploy.
+4. Check it: Actions → **Verify live deployment** → Run workflow with both URLs
+   (37 HTTP checks plus a headless-browser pass over all 11 pages).
+
+If Vercel gives the frontend a domain that does not start with `stockvision-pro`,
+also set `CORS_ORIGINS=https://<that domain>` on the API project and redeploy it.
+
 ### What changes on serverless
 
 Detected automatically from the `VERCEL` environment variable:
