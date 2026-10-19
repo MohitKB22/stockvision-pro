@@ -120,12 +120,12 @@ def probe(port: int) -> str:
     connection.settimeout(3)
     try:
         connection.connect(("127.0.0.1", port))
-    except (ConnectionRefusedError, socket.timeout, OSError):
+    except (TimeoutError, ConnectionRefusedError, OSError):
         return "free"
     try:
         connection.sendall(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
         return "alive" if connection.recv(64) else "zombie"
-    except (socket.timeout, OSError):
+    except (TimeoutError, OSError):
         return "zombie"
     finally:
         connection.close()
@@ -186,7 +186,7 @@ if has_app and not missing:
         import app.main  # noqa: F401
 
         line(OK, "app.main imported cleanly — the API itself is fine")
-    except Exception as exc:  # noqa: BLE001 — reporting any failure is the point
+    except Exception as exc:  # reporting any failure is the point
         line(FAIL, f"{type(exc).__name__}: {exc}")
         problems.append(f"The app fails to import: {type(exc).__name__}: {exc}")
         import traceback

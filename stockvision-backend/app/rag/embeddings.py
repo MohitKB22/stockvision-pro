@@ -24,7 +24,6 @@ from abc import ABC, abstractmethod
 
 import httpx
 import numpy as np
-from sklearn.feature_extraction.text import HashingVectorizer
 
 
 class EmbeddingModel(ABC):
@@ -55,6 +54,10 @@ class HashingEmbedding(EmbeddingModel):
 
     def __init__(self, dimension: int = 512):
         self.dimension = dimension
+        # Lazy: scikit-learn is ~1 s of import time, paid only when the RAG
+        # pipeline actually embeds text (see the cold-start note in ml_service).
+        from sklearn.feature_extraction.text import HashingVectorizer
+
         self._vectorizer = HashingVectorizer(
             n_features=dimension,
             alternate_sign=False,  # non-negative features -- easier to reason about for TF-style weighting

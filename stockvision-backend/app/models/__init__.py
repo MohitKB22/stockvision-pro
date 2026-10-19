@@ -17,6 +17,7 @@ from app.models.system import (
     DocumentEmbedding,
     GeneratedReport,
     NewsArticle,
+    StoredFile,
     Watchlist,
     WatchlistItem,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "Prediction",
     "Signal",
     "Stock",
+    "StoredFile",
     "Watchlist",
     "WatchlistItem",
 ]

@@ -1,11 +1,19 @@
 # ==============================================================================
-# StockVision Pro — Backend Dependencies
+# StockVision Pro — Backend RUNTIME Dependencies
 # ==============================================================================
 # Grouped by concern so a reviewer can see *why* each package is here.
+#
+# This file is what production installs — the Docker image AND the Vercel
+# function. It is deliberately runtime-only: the Vercel Python runtime rejects a
+# function whose installed dependencies exceed 500 MB, and the original single
+# file (with test tools, chromadb, shap and the CUDA build of xgboost) installed
+# to 1.4 GB. Now:
+#   requirements-dev.txt       this file + pytest, ruff, shap (reference checks)
+#   requirements-optional.txt  chromadb (the alternative vector-store backend)
 
 # --- Web framework / API layer ------------------------------------------------
 fastapi==0.115.6
-uvicorn[standard]==0.34.0
+uvicorn==0.34.0                 # the Docker image adds the [standard] extras (uvloop, httptools)
 python-multipart==0.0.20        # required by FastAPI's OAuth2PasswordRequestForm
 
 # --- Data validation / settings ----------------------------------------------
@@ -82,7 +90,8 @@ faiss-cpu==1.14.3      # primary vector store (app/rag/vector_store.py)
                         # package silently failed to install too, which is
                         # why the resulting ModuleNotFoundError pointed at an
                         # unrelated package (jose), not faiss-cpu itself).
-chromadb==0.6.3             # alternative vector store backend, same VectorStore interface
+# chromadb moved to requirements-optional.txt — it is the ALTERNATIVE vector store
+# (FAISS is the default) and its dependency tree alone is several hundred MB.
 
 # --- Data / numerics -----------------------------------------------------------
 pandas==2.2.3
@@ -107,24 +116,22 @@ scipy==1.18.0   # bumped from 1.14.1: that version has no prebuilt wheel at
 scikit-learn==1.7.2   # bumped from 1.5.2: no wheel at all for several
                        # current platform/Python combos (e.g. macOS +
                        # Python 3.14) -- same class of issue as scipy above
-xgboost==2.1.3
+xgboost-cpu==2.1.3    # CPU-only build of the same `xgboost` package/API. The
+                      # default `xgboost` wheel bundles CUDA and NCCL (~700 MB
+                      # installed with nvidia-nccl-cu12) for GPUs this app never uses.
 lightgbm==4.5.0
-shap==0.50.0   # bumped from 0.46.0, same reason as scipy/scikit-learn above.
-               # NOTE: shap has changed its TreeExplainer output shape across
-               # versions before (see app/ml/explain.py's
-               # _as_positive_class_array, written specifically to normalize
-               # this) -- re-verified against the full test suite after this
-               # bump, not just assumed compatible.
+# shap REMOVED from runtime: app/ml/explain.py computes the identical TreeSHAP
+# values with XGBoost/LightGBM's built-in implementations, and shap's hard numba
+# dependency (LLVM, ~190 MB) was what pushed the API over the serverless size
+# limit. shap stays in requirements-dev.txt, where tests/test_explain.py checks
+# every model type against shap.TreeExplainer.
 optuna==4.1.0
 joblib==1.4.2
 
-# --- Testing ---------------------------------------------------------------------
-pytest==8.3.4
-pytest-asyncio==0.25.1
-httpx==0.28.1                    # used by FastAPI's TestClient under the hood
+# --- HTTP client -------------------------------------------------------------------
+httpx==0.28.1                    # market-data providers + LLM clients; also FastAPI's TestClient
 
 # --- Utilities ---------------------------------------------------------------------
 python-dotenv==1.0.1
 
-# --- Linting (dev) --------------------------------------------------------------
-ruff==0.8.4
+# Testing and linting tools live in requirements-dev.txt.

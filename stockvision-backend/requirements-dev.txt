@@ -1,0 +1,17 @@
+# Development / CI dependencies: the runtime set plus test, lint and reference tools.
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+-r requirements-optional.txt
+
+# --- Testing ---------------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.25.1
+
+# Reference implementation for tests/test_explain.py, which asserts that the
+# native TreeSHAP values in app/ml/explain.py match shap.TreeExplainer exactly.
+# Bumped from 0.46.0 for Python 3.14 wheels (see the original pin's note in git
+# history); not needed at runtime.
+shap==0.50.0
+
+# --- Linting ---------------------------------------------------------------------
+ruff==0.8.4

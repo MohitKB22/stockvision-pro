@@ -26,6 +26,7 @@ same tables fill with real bars. Nothing downstream distinguishes the two.
 """
 import argparse
 import sys
+import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -175,12 +176,24 @@ def _upsert_stock(db, symbol, name, market, sector, base_price, market_cap, is_i
 
 
 def _seed_prices(db, stock: Stock, base_price: float, *, vol: float, drift: float) -> int:
+    # A symbol that already has history is left alone. The series now ends on the
+    # day the seed runs (below), so re-generating it on a later day would shift
+    # the same path onto different dates and splice it onto the stored one.
+    if PriceRepository(db).list_bars(stock.id, limit=1):
+        return 0
     df = generate_synthetic_ohlcv(
         symbol=stock.symbol, n_days=N_DAYS, start_price=base_price,
         annual_drift=drift, annual_vol=vol,
+        # Ends at the last business day before today, so the seeded market reads
+        # as current — trailing windows (52-week range, 180-day performance) and
+        # the seeded news line up with the prices. Previously every database
+        # ended on a fixed date in Dec 2023.
+        end_date=(datetime.now(timezone.utc) - timedelta(days=1)).date(),
         # Deterministic per symbol: re-running the seed reproduces the same
-        # history, so screenshots, tests and demos stay stable.
-        seed=abs(hash(stock.symbol)) % 100_000,
+        # history, so screenshots, tests and demos stay stable. crc32, not hash():
+        # str hashes are randomized per process (PYTHONHASHSEED), so hash() gave
+        # every fresh database a different history despite this comment.
+        seed=zlib.crc32(stock.symbol.encode()) % 100_000,
     )
     bars = df.to_dict("records")
     for bar in bars:

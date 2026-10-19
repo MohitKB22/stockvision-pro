@@ -20,7 +20,7 @@ CHANGE LOG (v2.0):
 """
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -239,7 +239,6 @@ class PortfolioService:
         if not holdings:
             return []
 
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
         frames: list[pd.Series] = []
         for h in holdings:
             df = self.prices.get_price_series(h.stock_id, limit=days + 30)
@@ -251,6 +250,11 @@ class PortfolioService:
             return []
 
         combined = pd.concat(frames, axis=1).sort_index().ffill().dropna(how="all")
+        # The window ends at the latest bar actually held, not at the wall clock.
+        # Anchored on "now", any history that stops before today (a seeded dataset,
+        # a provider outage, a weekend-plus-holiday gap at the edge) returned an
+        # EMPTY series once it was `days` old, and the performance chart went blank.
+        cutoff = pd.Timestamp(combined.index.max()) - timedelta(days=days)
         combined = combined[combined.index >= cutoff]
         totals = combined.sum(axis=1)
         if totals.empty:

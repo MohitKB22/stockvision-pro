@@ -20,11 +20,11 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
-    DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -33,7 +33,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.domain.enums import AuditAction, DocumentType, Market, ReportFormat, ReportType
-from app.models.base import GUID, IDMixin, TimestampMixin
+from app.models.base import GUID, IDMixin, TimestampMixin, UTCDateTime
 
 
 class AuditLog(Base, IDMixin):
@@ -55,7 +55,7 @@ class AuditLog(Base, IDMixin):
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     def __repr__(self) -> str:
         return f"<AuditLog {self.action} @ {self.timestamp}>"
@@ -75,7 +75,7 @@ class NewsArticle(Base, IDMixin, TimestampMixin):
     headline: Mapped[str] = mapped_column(String(500), nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     url: Mapped[str] = mapped_column(String(1000), nullable=False)
-    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    published_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     sentiment_score: Mapped[float | None] = mapped_column(Float, nullable=True)  # -1..1
     impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)     # 0..1
     entities: Mapped[list] = mapped_column(JSON, default=list)
@@ -195,3 +195,23 @@ class AppSetting(Base, IDMixin, TimestampMixin):
 
     key: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class StoredFile(Base, IDMixin, TimestampMixin):
+    """
+    File bytes kept in the database, for deployments with no persistent disk.
+
+    Used when STORAGE_BACKEND=database (the default on serverless hosts, whose
+    filesystem is read-only and is not shared between instances): model
+    artifacts, generated reports and uploaded PDFs live here instead of in the
+    *_STORAGE_DIR directories. The owning rows (`ml_models.artifact_path`,
+    `generated_reports.storage_path`, `documents.storage_path`) hold a
+    `db://<id>` locator rather than a path. See app/core/storage.py.
+    """
+    __tablename__ = "stored_files"
+    __table_args__ = (Index("ix_stored_files_category", "category"),)
+
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

@@ -184,9 +184,28 @@ class ChromaDBVectorStore(VectorStore):
         return results
 
 
+def chromadb_available() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("chromadb") is not None
+
+
 def new_vector_store(backend: str = "faiss") -> VectorStore:
     if backend == "faiss":
         return FAISSVectorStore()
     if backend == "chromadb":
+        # chromadb is an OPTIONAL dependency (requirements-optional.txt): with its
+        # onnxruntime/kubernetes/grpc transitive tree it is several hundred MB,
+        # which no free serverless tier can bundle. FAISS is the default and is
+        # always installed; asking for Chroma where it is absent is a clear 501,
+        # not an ImportError surfacing as a 500.
+        if not chromadb_available():
+            from app.core.exceptions import UnsupportedOperationException
+
+            raise UnsupportedOperationException(
+                "The 'chromadb' vector store is not installed on this deployment; "
+                "use 'faiss' (the default) or install requirements-optional.txt.",
+                context={"available_backends": ["faiss"]},
+            )
         return ChromaDBVectorStore()
     raise ValueError(f"Unknown vector store backend '{backend}'. Use 'faiss' or 'chromadb'.")

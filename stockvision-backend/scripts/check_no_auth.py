@@ -46,7 +46,7 @@ def scan(path: Path) -> list[str]:
                 if alias.name in FORBIDDEN_NAMES:
                     findings.append(f"{path}:{node.lineno}: imports `{alias.name}`")
 
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             if node.name in FORBIDDEN_NAMES:
                 findings.append(f"{path}:{node.lineno}: defines `{node.name}`")
 

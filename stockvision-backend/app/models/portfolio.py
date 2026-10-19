@@ -20,12 +20,12 @@ CHANGE LOG (v2.0):
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String
+from sqlalchemy import Boolean, Float, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.domain.enums import Market, OrderSide, OrderStatus
-from app.models.base import GUID, IDMixin, TimestampMixin
+from app.models.base import GUID, IDMixin, TimestampMixin, UTCDateTime
 
 
 class Portfolio(Base, IDMixin, TimestampMixin):
@@ -95,7 +95,7 @@ class Order(Base, IDMixin, TimestampMixin):
     # integration shares one queryable ledger with the backtester.
     is_simulated: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    executed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     portfolio: Mapped["Portfolio"] = relationship()
     stock: Mapped["Stock"] = relationship()  # noqa: F821

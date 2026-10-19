@@ -15,31 +15,54 @@ for the experiment-comparison UI the brief asks for. If it isn't reachable
 succeeds — MLflow logging failures are caught and logged as a warning, never
 allowed to fail the actual training job.
 """
+import io
 import logging
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import joblib
+from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.storage import StorageCategory, is_database_locator, read_file, save_file
 from app.domain.enums import ModelAlgorithm, ModelTask
 
 logger = logging.getLogger(__name__)
 
-
-def artifact_path_for(name: str, version: int) -> Path:
-    directory = Path(settings.MODEL_ARTIFACT_DIR)
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{name}_v{version}.joblib"
-
-
-def save_artifact(model_obj, name: str, version: int) -> str:
-    path = artifact_path_for(name, version)
-    joblib.dump(model_obj, path)
-    return str(path)
+# Artifacts are immutable once written (a retrain creates a new version, i.e. a
+# new locator), so deserialized models can be cached safely. Without this every
+# prediction re-read and re-unpickled the artifact — from the database, on hosts
+# that use database storage.
+_ARTIFACT_CACHE: OrderedDict[str, object] = OrderedDict()
+_ARTIFACT_CACHE_SIZE = 8
+_CACHE_LOCK = threading.Lock()
 
 
-def load_artifact(path: str):
-    return joblib.load(path)
+def save_artifact(db: Session, model_obj, name: str, version: int) -> str:
+    """Serializes a trained model through app.core.storage; returns its locator.
+    Compressed: a 400-tree random forest drops from ~11 MB to ~2.3 MB."""
+    buffer = io.BytesIO()
+    joblib.dump(model_obj, buffer, compress=3)
+    return save_file(db, StorageCategory.MODEL, f"{name}_v{version}.joblib", buffer.getvalue())
+
+
+def load_artifact(db: Session, locator: str):
+    """Raises FileNotFoundError if the artifact's bytes no longer exist."""
+    with _CACHE_LOCK:
+        if locator in _ARTIFACT_CACHE:
+            _ARTIFACT_CACHE.move_to_end(locator)
+            return _ARTIFACT_CACHE[locator]
+    model_obj = joblib.load(io.BytesIO(read_file(db, locator)))
+    with _CACHE_LOCK:
+        _ARTIFACT_CACHE[locator] = model_obj
+        while len(_ARTIFACT_CACHE) > _ARTIFACT_CACHE_SIZE:
+            _ARTIFACT_CACHE.popitem(last=False)
+    return model_obj
+
+
+def clear_artifact_cache() -> None:
+    with _CACHE_LOCK:
+        _ARTIFACT_CACHE.clear()
 
 
 def try_log_to_mlflow(
@@ -66,8 +89,11 @@ def try_log_to_mlflow(
         mlflow.set_experiment("stockvision-pro")
         with mlflow.start_run(run_name=run_name) as run:
             mlflow.log_params({**params, "task": task.value, "algorithm": algorithm.value})
-            mlflow.log_metrics({k: v for k, v in metrics.items() if isinstance(v, (int, float))})
-            mlflow.log_artifact(artifact_path)
+            mlflow.log_metrics({k: v for k, v in metrics.items() if isinstance(v, int | float)})
+            # Only a real file can be attached; database-stored artifacts are
+            # still fully tracked through the registry table.
+            if not is_database_locator(artifact_path) and Path(artifact_path).exists():
+                mlflow.log_artifact(artifact_path)
             return run.info.run_id
     except Exception as exc:
         logger.warning("MLflow logging skipped (tracking server unreachable?): %s", exc)

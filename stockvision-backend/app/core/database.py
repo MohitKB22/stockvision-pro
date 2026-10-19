@@ -39,7 +39,14 @@ else:
         pool_pre_ping=True,       # validates a connection before handing it out
         pool_size=settings.DB_POOL_SIZE,
         max_overflow=settings.DB_MAX_OVERFLOW,
-        pool_recycle=1800,        # recycle before typical managed-PG idle timeouts
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+        # Recycle before typical managed-PG idle timeouts. Serverless Postgres
+        # (Neon) suspends idle compute after ~5 minutes and drops every
+        # connection, so there the window is much shorter.
+        pool_recycle=240 if settings.is_serverless else 1800,
+        # A suspended Neon compute takes a few seconds to wake; fail clearly
+        # rather than hanging the request if it never answers.
+        connect_args={"connect_timeout": 15},
     )
 
 

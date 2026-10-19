@@ -21,12 +21,12 @@ import shutil
 import sys
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.storage import StorageCategory, usage_bytes
 from app.domain.enums import AuditAction
 from app.models.copilot import CopilotQuery
 from app.models.market import HistoricalPrice, Stock
@@ -123,12 +123,6 @@ class AdminService:
     def health(self) -> SystemHealth:
         db_ok, db_latency = self._probe_db()
 
-        def dir_bytes(path: str) -> int:
-            root = Path(path)
-            if not root.exists():
-                return 0
-            return sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
-
         try:
             usage = shutil.disk_usage(".")
             disk_pct = usage.used / usage.total if usage.total else 0.0
@@ -157,9 +151,9 @@ class AdminService:
             platform=platform.platform(),
             cpu_count=os.cpu_count() or 1,
             disk_usage_pct=disk_pct,
-            document_storage_bytes=dir_bytes(settings.DOCUMENT_STORAGE_DIR),
-            model_storage_bytes=dir_bytes(settings.MODEL_ARTIFACT_DIR),
-            report_storage_bytes=dir_bytes(settings.REPORT_STORAGE_DIR),
+            document_storage_bytes=usage_bytes(self.db, StorageCategory.DOCUMENT),
+            model_storage_bytes=usage_bytes(self.db, StorageCategory.MODEL),
+            report_storage_bytes=usage_bytes(self.db, StorageCategory.REPORT),
         )
 
     def _probe_db(self) -> tuple[bool, float]:

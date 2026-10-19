@@ -18,17 +18,17 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.storage import StorageCategory, delete_file, read_file, save_file
 from app.domain.enums import AuditAction, ReportFormat, ReportType
 from app.domain.markets import get_market
 from app.models.system import GeneratedReport
@@ -75,12 +75,9 @@ class ReportService:
 
         sections = self._build_sections(report_type, portfolio_id, lookback_days)
 
-        storage_dir = Path(settings.REPORT_STORAGE_DIR)
-        storage_dir.mkdir(parents=True, exist_ok=True)
         report_id = uuid.uuid4()
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         filename = f"{report_type.value}-report-{stamp}.{report_format.extension}"
-        path = storage_dir / f"{report_id}_{filename}"
 
         renderers = {
             ReportFormat.PDF: self._render_pdf,
@@ -88,16 +85,22 @@ class ReportService:
             ReportFormat.EXCEL: self._render_xlsx,
         }
         payload = renderers[report_format](sections)
-        path.write_bytes(payload)
+        locator = save_file(self.db, StorageCategory.REPORT, f"{report_id}_{filename}", payload)
 
         record = self.repo.create(
             GeneratedReport(
+                # Explicit, microsecond-precision timestamp: the column's server
+                # default is CURRENT_TIMESTAMP, which SQLite resolves to the second,
+                # so reports generated together were unordered (newest-first lists
+                # and retention both depend on this ordering).
+                created_at=datetime.now(timezone.utc),
                 id=report_id, report_type=report_type, report_format=report_format,
                 title=sections["title"], portfolio_id=portfolio_id,
-                storage_path=str(path), size_bytes=len(payload),
+                storage_path=locator, size_bytes=len(payload),
                 parameters={"lookback_days": lookback_days, "filename": filename},
             )
         )
+        self._apply_retention()
         self.audit.log(
             action=AuditAction.REPORT_GENERATED,
             resource=f"report:{record.id}",
@@ -109,11 +112,33 @@ class ReportService:
         record = self.repo.get(report_id)
         if not record:
             raise NotFoundException("Report not found")
-        path = Path(record.storage_path)
-        if not path.exists():
-            raise NotFoundException("The generated file for this report is no longer on disk.")
-        filename = (record.parameters or {}).get("filename") or path.name
-        return path.read_bytes(), filename, ReportFormat(record.report_format).media_type
+        try:
+            payload = read_file(self.db, record.storage_path)
+        except FileNotFoundError as exc:
+            raise NotFoundException("The generated file for this report is no longer available.") from exc
+        filename = (record.parameters or {}).get("filename") or Path(record.storage_path).name
+        return payload, filename, ReportFormat(record.report_format).media_type
+
+    def delete(self, record: GeneratedReport) -> None:
+        """Removes the artifact with its row — deleting only the row leaks storage forever."""
+        delete_file(self.db, record.storage_path)
+        self.repo.delete(record)
+
+    def _apply_retention(self) -> None:
+        """Keeps only the newest REPORT_RETENTION_COUNT reports (0 = keep all)."""
+        keep = settings.REPORT_RETENTION_COUNT
+        if keep <= 0:
+            return
+        stale = self.db.execute(
+            select(GeneratedReport)
+            .order_by(GeneratedReport.created_at.desc(), GeneratedReport.id)
+            .offset(keep)
+        ).scalars().all()
+        for record in stale:
+            delete_file(self.db, record.storage_path)
+            self.db.delete(record)
+        if stale:
+            self.db.commit()
 
     # --- Section builders -------------------------------------------------------
     def _build_sections(
@@ -402,6 +427,11 @@ class ReportService:
         return buffer.getvalue().encode("utf-8-sig")
 
     def _render_xlsx(self, sections: dict) -> bytes:
+        # Lazy import: openpyxl is only needed for Excel output, and keeping it off
+        # the module import path trims serverless cold starts.
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
         workbook = Workbook()
         header_fill = PatternFill("solid", fgColor="0B0F1A")
         header_font = Font(color="FFFFFF", bold=True, size=10)

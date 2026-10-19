@@ -12,12 +12,12 @@ without changing this schema — mlflow_run_id is reserved for exactly that.
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String
+from sqlalchemy import JSON, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.domain.enums import ModelAlgorithm, ModelStage, ModelTask, SignalAction
-from app.models.base import GUID, IDMixin, TimestampMixin
+from app.models.base import GUID, IDMixin, TimestampMixin, UTCDateTime
 
 if TYPE_CHECKING:  # pragma: no cover
     # Imported for typing only. A runtime import would be circular
@@ -44,7 +44,7 @@ class MLModel(Base, IDMixin, TimestampMixin):
     feature_names: Mapped[list] = mapped_column(JSON, default=list)
     mlflow_run_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    trained_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     def __repr__(self) -> str:
         return f"<MLModel {self.name} v{self.version} [{self.stage}]>"

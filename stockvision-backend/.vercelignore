@@ -1,0 +1,16 @@
+# Never uploaded to Vercel: local environments, databases, caches and file
+# storage from local runs (production keeps files in the database).
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.db
+*.db-shm
+*.db-wal
+ml_artifacts/
+document_storage/
+report_storage/

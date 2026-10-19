@@ -1,6 +1,5 @@
 """Report generation and download endpoints — new in v2.0."""
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
@@ -73,14 +72,8 @@ def download_report(report_id: uuid.UUID, db: Session = Depends(get_db)):
 
 @router.delete("/{report_id}", response_model=OperationResult, summary="Delete a report")
 def delete_report(report_id: uuid.UUID, db: Session = Depends(get_db)):
-    repo = ReportRepository(db)
-    record = repo.get(report_id)
+    record = ReportRepository(db).get(report_id)
     if not record:
         raise NotFoundException("Report not found")
-
-    # Remove the artifact too — deleting only the row leaks disk forever.
-    path = Path(record.storage_path)
-    if path.exists():
-        path.unlink(missing_ok=True)
-    repo.delete(record)
+    ReportService(db).delete(record)
     return OperationResult(message="Report deleted.", id=str(report_id))

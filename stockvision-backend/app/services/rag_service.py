@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.exceptions import InsufficientDataException, NotFoundException
+from app.core.storage import StorageCategory, save_file
 from app.models.copilot import CopilotQuery
 from app.models.system import Document, DocumentEmbedding
 from app.rag.chunking import chunk_document
@@ -111,18 +112,17 @@ class RAGService:
                 "document — OCR ingestion is not implemented in this phase)."
             )
 
-        storage_dir = Path(settings.DOCUMENT_STORAGE_DIR)
-        storage_dir.mkdir(parents=True, exist_ok=True)
         document_id = uuid.uuid4()
-        storage_path = storage_dir / f"{document_id}_{filename}"
-        storage_path.write_bytes(file_bytes)
+        storage_path = save_file(
+            self.db, StorageCategory.DOCUMENT, f"{document_id}_{Path(filename).name}", file_bytes
+        )
 
         document = Document(
             id=document_id,
             stock_id=stock.id if stock else None,
             filename=filename,
             document_type=document_type,
-            storage_path=str(storage_path),
+            storage_path=storage_path,
             page_count=extraction.page_count,
             size_bytes=len(file_bytes),
         )

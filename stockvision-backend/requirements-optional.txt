@@ -1,0 +1,6 @@
+# Optional backends. The API runs fully without these.
+#
+# chromadb: alternative vector store for the RAG copilot (same VectorStore
+# interface as the default FAISS backend — see app/rag/vector_store.py). Requests
+# that ask for vector_store_backend="chromadb" get a clear 501 when it is absent.
+chromadb==0.6.3

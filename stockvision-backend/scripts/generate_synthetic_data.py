@@ -14,6 +14,8 @@ in `MarketDataService.load_historical(symbol)` (real provider) instead of
 this generator requires no other code changes — both produce the same
 [timestamp, open, high, low, close, volume] DataFrame shape.
 """
+from datetime import date
+
 import numpy as np
 import pandas as pd
 
@@ -25,7 +27,10 @@ def generate_synthetic_ohlcv(
     annual_drift: float = 0.08,
     annual_vol: float = 0.28,
     seed: int = 7,
+    end_date: date | None = None,
 ) -> pd.DataFrame:
+    """`end_date`: when given, the series ends on that business day instead of
+    starting on 2021-01-04 (the default, which tests rely on staying fixed)."""
     rng = np.random.default_rng(seed)
     dt = 1 / 252
 
@@ -55,7 +60,10 @@ def generate_synthetic_ohlcv(
     base_volume = rng.integers(2_000_000, 8_000_000, n_days).astype(float)
     volume = base_volume * (1 + np.abs(shocks) * 3)  # volume spikes with volatility
 
-    dates = pd.bdate_range("2021-01-04", periods=n_days)
+    dates = (
+        pd.bdate_range(end=pd.Timestamp(end_date), periods=n_days) if end_date is not None
+        else pd.bdate_range("2021-01-04", periods=n_days)
+    )
 
     return pd.DataFrame(
         {

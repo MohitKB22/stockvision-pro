@@ -20,12 +20,12 @@ CHANGE LOG (v2.0):
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String
+from sqlalchemy import Boolean, Float, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.domain.enums import Market
-from app.models.base import GUID, IDMixin, TimestampMixin
+from app.models.base import GUID, IDMixin, TimestampMixin, UTCDateTime
 
 
 class Stock(Base, IDMixin, TimestampMixin):
@@ -66,7 +66,7 @@ class HistoricalPrice(Base, IDMixin):
     stock_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False
     )
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     open: Mapped[float] = mapped_column(Float, nullable=False)
     high: Mapped[float] = mapped_column(Float, nullable=False)
     low: Mapped[float] = mapped_column(Float, nullable=False)

@@ -15,7 +15,7 @@ Requires **Python 3.10–3.13** — not 3.14, whose missing wheels for `faiss-cp
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt      # runtime + pytest, ruff, shap, chromadb
 
 python scripts/seed_data.py             # both markets, ~3 years of synthetic OHLCV
 python -m uvicorn app.main:app --reload # http://localhost:8000/docs
@@ -26,6 +26,15 @@ runs under its own interpreter and will fail with `No module named 'app'`.
 
 Defaults to a local SQLite file, so no external services are required. Point
 `DATABASE_URL` at PostgreSQL for production and run `alembic upgrade head`.
+
+| File | Installs |
+| --- | --- |
+| `requirements.txt` | runtime only — what the Docker image and the Vercel function install (433 MB) |
+| `requirements-dev.txt` | runtime + tests, lint, `shap` (reference for the SHAP tests), `chromadb` |
+| `requirements-optional.txt` | `chromadb`, the alternative vector-store backend |
+
+Run the suite against PostgreSQL as well as SQLite with
+`TEST_DATABASE_URL=postgresql://…/disposable_db pytest` (CI does both).
 
 Setup problems are covered in the root [README](../README.md#troubleshooting).
 

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.storage import delete_file
 from app.domain.enums import AuditAction, DocumentType
 from app.models.copilot import CopilotConversation
 from app.repositories.document_repository import (
@@ -120,11 +121,13 @@ def list_documents(limit: int = Query(default=100, ge=1, le=500), db: Session = 
 
 @router.delete("/documents/{document_id}", response_model=OperationResult, summary="Remove a document")
 def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Deletes the row and cascades to its chunks, removing it from retrieval."""
+    """Deletes the row and cascades to its chunks, removing it from retrieval.
+    The stored PDF goes with it (previously it stayed on disk forever)."""
     repo = DocumentRepository(db)
     document = repo.get(document_id)
     if not document:
         raise NotFoundException("Document not found")
+    delete_file(db, document.storage_path)
     repo.delete(document)
     return OperationResult(message="Document removed from the corpus.", id=str(document_id))
 

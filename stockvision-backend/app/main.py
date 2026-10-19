@@ -36,7 +36,7 @@ from app.core.database import Base, SessionLocal, engine
 from app.core.dependencies import rate_limiter
 from app.core.exceptions import AppException
 from app.core.logging import configure_logging
-from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware, anonymize_ip
 from app.core.monitoring import setup_prometheus, setup_tracing
 from app.domain.enums import AuditAction
 from app.schemas.common import ErrorEnvelope, HealthResponse
@@ -55,10 +55,14 @@ async def lifespan(app: FastAPI):
     database, which is exactly the gap versioned migrations cover. Auto-creating
     in production would silently mask a forgotten migration.
     """
-    for directory in (
-        settings.DOCUMENT_STORAGE_DIR, settings.MODEL_ARTIFACT_DIR, settings.REPORT_STORAGE_DIR
-    ):
-        Path(directory).mkdir(parents=True, exist_ok=True)
+    # Only the filesystem storage backend needs these. On serverless hosts the
+    # deployment directory is read-only, and creating them crashed startup with
+    # `OSError: [Errno 30] Read-only file system` before a single request was served.
+    if settings.STORAGE_BACKEND == "filesystem":
+        for directory in (
+            settings.DOCUMENT_STORAGE_DIR, settings.MODEL_ARTIFACT_DIR, settings.REPORT_STORAGE_DIR
+        ):
+            Path(directory).mkdir(parents=True, exist_ok=True)
 
     if settings.is_sqlite:
         logger.info("SQLite backend detected — auto-creating tables for local/dev convenience.")
@@ -99,6 +103,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX or None,
     allow_credentials=False,  # no cookies, no auth headers — nothing to send credentials for
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Request-ID"],
@@ -108,7 +113,8 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
-setup_prometheus(app)   # exposes GET /metrics
+if settings.METRICS_ENABLED:
+    setup_prometheus(app)   # exposes GET /metrics
 setup_tracing(app)      # OpenTelemetry auto-instrumentation
 
 
@@ -234,14 +240,15 @@ async def audit_api_calls(request: Request, call_next):
         db = SessionLocal()
         try:
             forwarded = request.headers.get("X-Forwarded-For")
+            client_ip = (
+                forwarded.split(",")[0].strip() if forwarded
+                else (request.client.host if request.client else None)
+            )
             AuditService(db).log(
                 action=AuditAction.API_CALL,
                 resource=f"{request.method} {path}",
                 detail={"query": str(request.url.query)[:500]} if request.url.query else {},
-                ip_address=(
-                    forwarded.split(",")[0].strip() if forwarded
-                    else (request.client.host if request.client else None)
-                ),
+                ip_address=anonymize_ip(client_ip) if settings.AUDIT_ANONYMIZE_IP else client_ip,
                 status_code=response.status_code,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )

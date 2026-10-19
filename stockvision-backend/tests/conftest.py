@@ -9,20 +9,62 @@ CHANGE LOG (v2.0): the `auth_headers` fixture is gone. It registered one user pe
 role and handed out bearer tokens; with no authentication there is nothing to
 register and no header to send. Every test now calls the API exactly the way a
 real client does.
-"""
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.core.database import Base, get_db
-from app.core.dependencies import rate_limiter, reset_rate_limiter
-from app.main import app
+PostgreSQL: set TEST_DATABASE_URL to a DISPOSABLE database to run the same suite
+against the production engine (CI does). SQLite and PostgreSQL disagree on enough
+things — timezone-aware timestamps, strict typing — that a suite which only ever
+ran on SQLite let a production-only crash through. Every table in that database is
+truncated after each test.
+"""
+import os
+
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+if TEST_DATABASE_URL:
+    # Must happen before `app` is imported: the engine is built at import time, and
+    # the request-telemetry middleware writes through it.
+    os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import create_engine, text  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+import app.models  # noqa: E402  registers every table on Base.metadata
+from app.core.database import Base, get_db  # noqa: E402
+from app.core.dependencies import rate_limiter, reset_rate_limiter  # noqa: E402
+from app.main import app  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def _postgres_engine():
+    if not TEST_DATABASE_URL:
+        yield None
+        return
+    from app.core.database import engine
+
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture()
-def db_session():
+def db_session(_postgres_engine):
+    if _postgres_engine is not None:
+        session = sessionmaker(
+            autocommit=False, autoflush=False, bind=_postgres_engine, expire_on_commit=False
+        )()
+        try:
+            yield session
+        finally:
+            session.rollback()
+            session.close()
+            tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+            with _postgres_engine.begin() as conn:
+                conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        return
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},

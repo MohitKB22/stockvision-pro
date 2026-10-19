@@ -19,7 +19,7 @@ WORKDIR /build
 COPY requirements.txt .
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
- && /opt/venv/bin/pip install -r requirements.txt
+ && /opt/venv/bin/pip install -r requirements.txt "uvicorn[standard]==0.34.0"
 
 FROM python:3.12-slim AS runtime
 

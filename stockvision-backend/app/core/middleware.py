@@ -88,3 +88,26 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
         return response
+
+
+def anonymize_ip(address: str | None) -> str | None:
+    """
+    Truncates a client address before it is stored: IPv4 to its /24, IPv6 to its
+    /48 (`203.0.113.57` -> `203.0.113.0`).
+
+    The admin page lists recent API calls with their source address, and this API
+    has no authentication, so on a public deployment every visitor's full IP would
+    be published to every other visitor. The truncated form still shows the
+    traffic pattern the page is for, without identifying anyone. Values that are
+    not IP addresses (e.g. TestClient's "testclient") pass through unchanged.
+    """
+    if not address:
+        return address
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    prefix = 24 if ip.version == 4 else 48
+    return str(ipaddress.ip_network(f"{ip}/{prefix}", strict=False).network_address)

@@ -25,12 +25,17 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import InsufficientDataException, ModelNotTrainedException, NotFoundException
+from app.core.config import settings
+from app.core.exceptions import (
+    BadRequestException,
+    InsufficientDataException,
+    ModelNotTrainedException,
+    NotFoundException,
+)
 from app.domain.enums import AuditAction, ModelAlgorithm, ModelStage, ModelTask
 from app.ml.explain import ShapExplainer
 from app.ml.indicators import FEATURE_COLUMNS, build_feature_matrix
 from app.ml.registry import generate_model_name, load_artifact, save_artifact, try_log_to_mlflow
-from app.ml.train import train_model
 from app.models.ml import MLModel, Prediction
 from app.repositories.market_repository import PriceRepository, StockRepository
 from app.repositories.ml_repository import MLModelRepository, PredictionRepository
@@ -54,6 +59,17 @@ class MLService:
         n_optuna_trials: int,
         n_walk_forward_splits: int,
     ) -> MLModel:
+        if n_optuna_trials > settings.ML_MAX_OPTUNA_TRIALS or n_walk_forward_splits > settings.ML_MAX_WALK_FORWARD_SPLITS:
+            raise BadRequestException(
+                f"This deployment trains synchronously with at most {settings.ML_MAX_OPTUNA_TRIALS} "
+                f"Optuna trials and {settings.ML_MAX_WALK_FORWARD_SPLITS} walk-forward splits per request.",
+                code="training_budget_exceeded",
+                context={
+                    "max_optuna_trials": settings.ML_MAX_OPTUNA_TRIALS,
+                    "max_walk_forward_splits": settings.ML_MAX_WALK_FORWARD_SPLITS,
+                },
+            )
+
         stock = self.stocks.get_by_symbol(symbol)
         if not stock:
             raise NotFoundException(f"Stock {symbol} not found")
@@ -63,6 +79,12 @@ class MLService:
             raise InsufficientDataException(
                 f"Only {len(ohlcv)} price bars loaded for {symbol}; need at least ~100 for training."
             )
+
+        # Imported here, not at module level: the training stack (optuna,
+        # scikit-learn ensembles, LightGBM, XGBoost) is the heaviest import in the
+        # app, and only this endpoint needs it. Keeping it off the import path cuts
+        # cold-start time for every other request on serverless hosts.
+        from app.ml.train import train_model
 
         result = train_model(
             ohlcv=ohlcv,
@@ -74,14 +96,14 @@ class MLService:
 
         name = generate_model_name(symbol, task)
         version = self.ml_models.get_latest_version(name) + 1
-        artifact_path = save_artifact(result.model, name, version)
+        artifact_path = save_artifact(self.db, result.model, name, version)
 
         mlflow_run_id = try_log_to_mlflow(
             run_name=f"{name}_v{version}",
             task=task,
             algorithm=algorithm,
             params=result.best_params,
-            metrics={k: v for k, v in result.metrics.items() if isinstance(v, (int, float))},
+            metrics={k: v for k, v in result.metrics.items() if isinstance(v, int | float)},
             artifact_path=artifact_path,
         )
 
@@ -153,7 +175,14 @@ class MLService:
                 "to clear every warm-up window, e.g. 50+ for SMA-50)."
             )
 
-        model_obj = load_artifact(ml_model.artifact_path)
+        try:
+            model_obj = load_artifact(self.db, ml_model.artifact_path)
+        except FileNotFoundError as exc:
+            raise ModelNotTrainedException(
+                f"The stored artifact for {ml_model.name} v{ml_model.version} is missing — "
+                "retrain the model from the Prediction page.",
+                context={"symbol": symbol.upper(), "task": task.value, "model_id": str(ml_model.id)},
+            ) from exc
         X = latest_row[FEATURE_COLUMNS]
 
         if task == ModelTask.TREND_CLASSIFICATION:
