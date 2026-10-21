@@ -6,6 +6,15 @@ analytics, ML price prediction, and a RAG copilot over financial documents.
 Dual-market (India / United States), dark-theme only, **no authentication**.
 The application opens directly on the dashboard.
 
+**Live:** https://stockvision-pro-web.vercel.app
+· API: https://stockvision-pro-api.vercel.app ([docs](https://stockvision-pro-api.vercel.app/docs))
+
+Verified on 21 Oct 2026 with the **Verify live deployment** workflow: 41/41 HTTP
+checks (both markets, portfolio and risk, model training → prediction with SHAP,
+report generation and download, CORS) and all 11 pages loaded in headless Chromium
+with no console errors or failed API calls. It is a public demo on free tiers: the
+first request after a quiet spell is slower while the function and the database wake up.
+
 ---
 
 ## Hosting (free)
