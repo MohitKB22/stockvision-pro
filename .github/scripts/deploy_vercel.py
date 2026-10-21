@@ -3,7 +3,7 @@
 Deploys StockVision Pro to Vercel (free Hobby plan) as two projects:
 
   stockvision-pro-api  FastAPI backend   (Root Directory: stockvision-backend)
-  stockvision-pro      Next.js frontend  (Root Directory: stockvision-frontend)
+  stockvision-pro-web  Next.js frontend  (Root Directory: stockvision-frontend)
 
 and then smoke-tests the live result. Run by .github/workflows/deploy.yml; needs
 
@@ -35,7 +35,7 @@ API = os.environ.get("VERCEL_API_BASE", "https://api.vercel.com")  # overridable
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 API_PROJECT = os.environ.get("API_PROJECT", "stockvision-pro-api")
-WEB_PROJECT = os.environ.get("WEB_PROJECT", "stockvision-pro")
+WEB_PROJECT = os.environ.get("WEB_PROJECT", "stockvision-pro-web")
 # Frontend production + preview domains (stockvision-pro.vercel.app,
 # stockvision-pro-<suffix>.vercel.app, stockvision-pro-git-main-<team>.vercel.app).
 WEB_ORIGIN_REGEX = r"^https://stockvision-pro(-[a-z0-9]+)*\.vercel\.app$"

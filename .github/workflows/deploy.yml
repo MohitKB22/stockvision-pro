@@ -1,7 +1,9 @@
 name: Deploy
 
-# Production deploy to Vercel's free Hobby plan (frontend + API) with a Neon
-# free-plan PostgreSQL database. Runs after CI passes on main, or by hand.
+# Token-based deploy to Vercel's free Hobby plan (frontend + API) with a Neon
+# free-plan PostgreSQL database. Manual only: the live projects are connected to
+# this repository through Vercel's Git integration, which deploys every push to
+# main by itself. Use this to (re)create the setup in another Vercel account.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   VERCEL_TOKEN  - https://vercel.com/account/settings/tokens
@@ -9,10 +11,6 @@ name: Deploy
 # Without them this workflow skips itself with a warning instead of failing.
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -25,7 +23,6 @@ permissions:
 jobs:
   deploy:
     name: Deploy to Vercel and smoke-test
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:

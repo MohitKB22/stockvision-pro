@@ -14,12 +14,14 @@ The whole stack runs on free tiers, ₹0:
 
 | Part | Host | Plan |
 | --- | --- | --- |
-| Frontend (Next.js) | Vercel — project `stockvision-pro`, Root Directory `stockvision-frontend` | Hobby (free) |
+| Frontend (Next.js) | Vercel — project `stockvision-pro-web`, Root Directory `stockvision-frontend` | Hobby (free) |
 | API (FastAPI + ML) | Vercel — project `stockvision-pro-api`, Root Directory `stockvision-backend` | Hobby (free) |
 | Database | Neon serverless PostgreSQL | Free |
 
-Pushes to `main` deploy automatically once CI passes
-(`.github/workflows/deploy.yml`), after which the live site is smoke-tested.
+Both Vercel projects are connected to this repository, so every push to `main`
+is deployed by Vercel itself; the API's build step applies migrations and seeds
+the database. **Verify live deployment** (`.github/workflows/verify.yml`, run from
+the Actions tab) checks the deployed site end to end.
 Setup, limits and what changes on serverless:
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#free-hosting-vercel--neon).
 
@@ -365,7 +367,7 @@ npm run verify        # typecheck + lint + no-auth guard + build
 
 CI runs all of the above (the suite twice: SQLite and PostgreSQL), rehearses the
 serverless deployment against PostgreSQL, and builds both Docker images on every
-push. The deploy workflow re-runs the smoke test against the live site.
+push. The **Verify live deployment** workflow runs it, plus a browser pass over every page, against the live site.
 
 ---
 

@@ -29,8 +29,13 @@ env:
 jobs:
   verify:
     name: Verify live site
-    runs-on: ubuntu-latest
+    # Pinned: Playwright's --with-deps installs packages by Ubuntu release, and
+    # ubuntu-latest moves to a release it may not know yet.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash  # explicit shell = -eo pipefail
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -43,7 +48,6 @@ jobs:
       - name: API + frontend smoke test
         id: smoke
         run: |
-          set -o pipefail
           python stockvision-backend/scripts/smoke_test.py "$API_URL" \
             --origin "$WEB_URL" --frontend "$WEB_URL" | tee smoke.txt
         continue-on-error: true
@@ -51,23 +55,28 @@ jobs:
       - name: Browser walk through every page
         id: browser
         run: |
-          set -o pipefail
-          npm install --no-save --no-audit --no-fund playwright@1.56.1
-          npx playwright install --with-deps chromium
-          node .github/scripts/browser_walk.mjs "$WEB_URL" screenshots | tee browser.txt
+          if ! { npm install --no-save --no-audit --no-fund playwright@1.56.1 &&
+                 npx playwright install --with-deps chromium; } > setup.log 2>&1; then
+            tail -20 setup.log
+            echo "  - browser setup failed: $(tail -3 setup.log | tr '\n' ' ')" > browser.txt
+            exit 1
+          fi
+          node .github/scripts/browser_walk.mjs "$WEB_URL" screenshots 2>&1 | tee browser.txt
         continue-on-error: true
 
       - name: Report
         if: always()
         run: |
-          smoke=$(grep -E ' passed, [0-9]+ failed' smoke.txt | tail -1 || echo "smoke test did not run")
-          pages=$(grep -E 'pages, [0-9]+ problem' browser.txt | tail -1 || echo "browser walk did not run")
+          smoke=$(grep -shE ' passed, [0-9]+ failed' smoke.txt | tail -1 || true)
+          pages=$(grep -shE 'pages, [0-9]+ problem' browser.txt | tail -1 || true)
+          smoke=${smoke:-smoke test did not finish}
+          pages=${pages:-browser walk did not finish}
           { echo "## Live verification"; echo; echo "- API: $API_URL"; echo "- App: $WEB_URL";
             echo; echo '```'; cat smoke.txt browser.txt 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ steps.smoke.outcome }}" = "success" ] && [ "${{ steps.browser.outcome }}" = "success" ]; then
             echo "::notice title=Live verification passed::$smoke | $pages"
           else
-            failures=$( (grep -hE '^\s+- ' smoke.txt browser.txt 2>/dev/null || true) | head -12 | tr '\n' ';' )
+            failures=$( (grep -shE '^\s+- |Error|error:' smoke.txt browser.txt || true) | head -12 | tr '\n' ';' )
             echo "::error title=Live verification failed::$smoke | $pages | $failures"
             exit 1
           fi

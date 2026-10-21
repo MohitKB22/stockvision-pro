@@ -136,6 +136,24 @@ jobs:
       - name: HTTP smoke test
         run: python scripts/smoke_test.py http://127.0.0.1:8000 --origin https://stockvision-pro.vercel.app
 
+      - name: LightGBM without a system OpenMP runtime (as on Vercel)
+        # Vercel's Python runtime has no libgomp.so.1, which LightGBM's wheel needs.
+        # Hide the runner's copy in a private mount namespace and check that
+        # app.ml.native supplies one and training still works.
+        run: |
+          real=$(readlink -f "$(ldconfig -p | awk '/libgomp\.so\.1 /{print $NF; exit}')")
+          py=$(command -v python)
+          sudo unshare -m bash -c "mount --bind /dev/null '$real' && cd '$PWD' && '$py' -W ignore -c '
+          from app.ml.native import ensure_openmp_runtime
+          source = ensure_openmp_runtime()
+          assert source not in (\"system\", \"missing\"), source
+          import numpy as np
+          import app.ml.train  # imports LightGBM
+          from lightgbm import LGBMClassifier
+          X = np.random.default_rng(0).normal(size=(300, 5)); y = (X[:, 0] > 0).astype(int)
+          print(\"OpenMP from\", source, \"- accuracy\", LGBMClassifier(n_estimators=20, verbose=-1).fit(X, y).score(X, y))
+          '"
+
       - name: API log
         if: always()
         run: tail -n 100 api.log || true

@@ -16,23 +16,22 @@ Hobby is for **non-commercial** use only. Free-tier terms can change, so re-chec
 
 | Part | Where | Notes |
 | --- | --- | --- |
-| Frontend | Vercel project `stockvision-pro`, Root Directory `stockvision-frontend` | `NEXT_PUBLIC_API_URL` = API URL + `/api/v1` (set at build) |
+| Frontend | Vercel project `stockvision-pro-web`, Root Directory `stockvision-frontend` | `NEXT_PUBLIC_API_URL` = API URL + `/api/v1` (set at build) |
 | API | Vercel project `stockvision-pro-api`, Root Directory `stockvision-backend` | One Python function (`app/main.py`), 300 s max, 2 GB |
 | Database | Neon project, region AWS us-east-1 (next to Vercel's default `iad1`) | Use the **pooled** connection string |
 
-### One-time setup
+### Option A: from GitHub Actions (token)
 
 1. Neon: create a free project and copy its connection string.
 2. Vercel: create an access token (Account Settings → Tokens).
 3. GitHub: add both as repository secrets — `DATABASE_URL` and `VERCEL_TOKEN`.
 
-That is all. `.github/workflows/deploy.yml` runs after CI passes on `main` (or
-manually from the Actions tab). It creates both Vercel projects if they do not
-exist, sets their environment variables, deploys the API and then the frontend
+Then run `.github/workflows/deploy.yml` from the Actions tab. It creates both
+Vercel projects if they do not exist, sets their environment variables, deploys the API and then the frontend
 built against it, and smoke-tests the live site with `scripts/smoke_test.py`.
 The URLs and the test result appear as annotations on the workflow run.
 
-### Or: set it up in the Vercel dashboard (no secrets in GitHub)
+### Option B: from the Vercel dashboard (how the live demo is set up)
 
 1. **Add New → Project**, import this repository. Name `stockvision-pro-api`,
    Framework Preset **FastAPI**, Root Directory `stockvision-backend` (the build
@@ -43,10 +42,11 @@ The URLs and the test result appear as annotations on the workflow run.
    `RATE_LIMIT_PER_MINUTE=300`, then Deploy. The first build stops with
    "no PostgreSQL database is configured" — expected.
 2. In that project: **Storage → Create Database → Neon**, plan **Free**, region
-   Washington D.C. (`iad1`), connect it to Production and Preview with **no**
-   variable prefix (it injects `DATABASE_URL` / `DATABASE_URL_UNPOOLED`).
+   Washington D.C. (`iad1`), Auth and Realtime off. Connect it to Production and
+   Preview with **no** variable prefix (it injects `DATABASE_URL` / `DATABASE_URL_UNPOOLED`).
    Then **Deployments → ⋯ → Redeploy**. The build migrates and seeds the database.
-3. **Add New → Project** again with the same repository: name `stockvision-pro`,
+3. **Add New → Project** again with the same repository: name `stockvision-pro-web`
+   (any name starting with `stockvision-pro-` matches the API's CORS rule),
    preset **Next.js**, Root Directory `stockvision-frontend`, environment variable
    `NEXT_PUBLIC_API_URL=https://<API production domain>/api/v1`, Deploy.
 4. Check it: Actions → **Verify live deployment** → Run workflow with both URLs
@@ -67,6 +67,7 @@ Detected automatically from the `VERCEL` environment variable:
 | Training per request | ≤ 200 Optuna trials, ≤ 20 splits | ≤ 40 trials, ≤ 8 splits (300 s function limit) |
 | DB pool per process | 10 + 20 | 5 + 15, 240 s recycle (Neon suspends idle compute) |
 | `/metrics` | on | off (per-instance counters nobody scrapes) |
+| LightGBM's OpenMP runtime (`libgomp.so.1`) | system library | not in the runtime: a copy of the libgomp bundled in the XGBoost/scikit-learn wheels, renamed back to `libgomp.so.1` at startup (`app/ml/native.py`) |
 | Celery price refresh | `--profile worker` | not run (no provider key is configured on the demo) |
 
 The API's dependencies are split so the function fits Vercel's 500 MB Python
@@ -76,7 +77,7 @@ come from XGBoost/LightGBM's built-in TreeSHAP (forests are translated into an
 equivalent XGBoost ensemble) instead of the `shap` package, whose numba/LLVM
 dependency alone is ~190 MB; `tests/test_explain.py` checks they match `shap`.
 
-Public-demo guards (set by the deploy workflow): `STORAGE_QUOTA_BYTES=300 MB`,
+Public-demo guards (API project environment variables): `STORAGE_QUOTA_BYTES=300 MB`,
 `REPORT_RETENTION_COUNT=50`, `RATE_LIMIT_PER_MINUTE=300`, and client IPs are
 truncated before the audit log stores them (`AUDIT_ANONYMIZE_IP`, on by default).
 
